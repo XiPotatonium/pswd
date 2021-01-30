@@ -24,7 +24,15 @@ List records
 
 ### import
 
+Import from .tsv file
+
+```import [file-path]```
+
 ### export
+
+Export to .tsv file
+
+```export [file-path]```
 
 ### chpswd
 

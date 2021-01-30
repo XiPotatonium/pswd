@@ -200,12 +200,9 @@ fn main() {
                     records.remove(*idx);
                     modified = true;
                 }
-                Op::Ls(Option::None) => {
-                    // list all
-                    record::print_table(&records);
-                }
-                Op::Ls(Option::Some(clause)) => {
-                    unimplemented!("advanced ls not implemented");
+                Op::Ls(clause) => {
+                    // list some
+                    record::print_table(records.iter().enumerate().filter(|x| clause.check(x.1)));
                 }
                 Op::Mod(idx, remain) => {
                     if modify_record(&mut records, *idx, *remain) {
@@ -235,7 +232,7 @@ fn main() {
                         println!("{}", e);
                         return;
                     }
-                }
+                },
                 Op::Quit => {
                     break;
                 }

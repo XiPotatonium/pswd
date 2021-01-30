@@ -1,7 +1,7 @@
 use crate::cfg::Cfg;
 use crate::record::Record;
-use crypto::{symmetriccipher, aes, blockmodes};
-use crypto::buffer::{self, WriteBuffer, ReadBuffer, BufferResult};
+use crypto::buffer::{self, BufferResult, ReadBuffer, WriteBuffer};
+use crypto::{aes, blockmodes, symmetriccipher};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -84,6 +84,7 @@ pub fn read_tsv(fname: &str) -> Vec<Record> {
     for line in fin.lines().skip(1) {
         let line = line.unwrap();
         let fields: Vec<&str> = line.split('\t').collect();
+        assert_eq!(fields.len(), 4, "Failed in parsing tsv");
         ret.push(Record {
             site: fields[0].to_owned(),
             username: fields[1].to_owned(),

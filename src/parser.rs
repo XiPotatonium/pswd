@@ -1,16 +1,33 @@
+use crate::record::Record;
 use std::env;
 
 #[derive(std::fmt::Debug)]
 pub enum WhereClause {
     Keyword(String),
     Clause(),
+    None,
+}
+
+impl WhereClause {
+    pub fn check(&self, record: &Record) -> bool {
+        match self {
+            WhereClause::Keyword(s) => {
+                record.site.contains(s)
+                    || record.username.contains(s)
+                    || record.password.contains(s)
+                    || record.note.contains(s)
+            }
+            WhereClause::None => true,
+            _ => unimplemented!("Advanced ls not implemented"),
+        }
+    }
 }
 
 #[derive(std::fmt::Debug)]
 pub enum Op {
     Add,
     Del(usize),
-    Ls(Option<Box<WhereClause>>),
+    Ls(WhereClause),
     Mod(usize, bool),
     Import(String),
     Export(String),
@@ -38,23 +55,24 @@ pub fn parse(args: Vec<String>) -> Result<Op, &'static str> {
             _ => Err(TOO_MANY_ARGS_MSG),
         },
         "ls" => match args.len() {
-            1 => Ok(Op::Ls(Option::None)),
+            1 => Ok(Op::Ls(WhereClause::None)),
+            2 => Ok(Op::Ls(WhereClause::Keyword(args[1].clone()))),
             _ => unimplemented!("Advanced ls not implemented"),
         },
         "mod" => match args.len() {
             1 => Err(TOO_FEW_ARGS_MSG),
             2 => Ok(Op::Mod(args[1].parse::<usize>().unwrap(), false)),
             3 if args[2] == "-e" => Ok(Op::Mod(args[1].parse::<usize>().unwrap(), true)),
-            _ => unimplemented!("Advanced ls not implemented"),
+            _ => Err(TOO_MANY_ARGS_MSG),
         },
         "import" => match args.len() {
             1 => Err(TOO_FEW_ARGS_MSG),
-            2 => Ok(Op::Import(String::from(&args[1]))),
+            2 => Ok(Op::Import(args[1].clone())),
             _ => Err(TOO_MANY_ARGS_MSG),
         },
         "export" => match args.len() {
             1 => Err(TOO_FEW_ARGS_MSG),
-            2 => Ok(Op::Export(String::from(&args[1]))),
+            2 => Ok(Op::Export(args[1].clone())),
             _ => Err(TOO_MANY_ARGS_MSG),
         },
         "chpswd" => match args.len() {

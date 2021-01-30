@@ -16,9 +16,9 @@ impl Record {
     }
 }
 
-pub fn print_table(records: &Vec<Record>) {
+pub fn print_table<'r, T: Iterator<Item = (usize, &'r Record)>>(records: T) {
     println!("\tSite\tUsername\tPassword\tNote");
-    for (i, r) in records.iter().enumerate() {
+    for (i, r) in records {
         println!(
             "{}\t{}\t{}\t{}\t{}",
             i, r.site, r.username, r.password, r.note
