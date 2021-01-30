@@ -1,15 +1,15 @@
-mod argparser;
 mod cfg;
 mod fs;
+mod parser;
 mod record;
 
 extern crate crypto;
 extern crate serde;
 extern crate serde_json;
 
-use argparser::{argparse, Op};
 use cfg::Cfg;
 use crypto::digest::Digest;
+use parser::{argparse, parse, Op};
 use record::Record;
 use std::env;
 use std::io::{self, Write};
@@ -31,19 +31,16 @@ macro_rules! readline {
 /**
  * Set new password from user input
 */
-fn get_new_pswd(cfg: &mut Cfg) -> Result<String, &'static str> {
-    let mut new_pswd = String::new();
-    let mut repeat_new_pswd = String::new();
-    prompt!("New password: ");
-    readline!(new_pswd);
-    prompt!("Repeat new password: ");
-    readline!(repeat_new_pswd);
+fn get_new_pswd(cfg: &mut Cfg) -> Result<[u8; 32], &'static str> {
+    let new_pswd = rpassword::prompt_password_stdout("New password: ").unwrap();
+    let repeat_new_pswd = rpassword::prompt_password_stdout("Repeat new password: ").unwrap();
     if new_pswd == repeat_new_pswd {
         let mut hasher = crypto::sha3::Sha3::sha3_256();
         hasher.input_str(&new_pswd);
-        let pswd1 = hasher.result_str();
+        let mut pswd1 = [0u8; 32];
+        hasher.result(&mut pswd1);
         let mut hasher = crypto::sha3::Sha3::sha3_256();
-        hasher.input_str(&pswd1);
+        hasher.input(&pswd1);
         cfg.pswd = hasher.result_str();
         Ok(pswd1)
     } else {
@@ -95,9 +92,7 @@ fn modify_record(records: &mut Vec<Record>, idx: usize, remain: bool) -> bool {
     readline!(note);
 
     // Print record before modification
-    println!();
     record::print_record(records, idx);
-    println!();
 
     let record = &mut records[idx];
     if remain {
@@ -123,7 +118,6 @@ fn modify_record(records: &mut Vec<Record>, idx: usize, remain: bool) -> bool {
     // Print record after modification
     println!();
     record::print_record(records, idx);
-    println!();
 
     true
 }
@@ -133,7 +127,7 @@ static RECORD_FNAME: &str = "pswd.record";
 
 fn main() {
     // Read and parse console argument
-    let op = argparse();
+    let mut op = argparse();
     let cfg_path: String;
     let def_record_path: String;
     {
@@ -148,22 +142,20 @@ fn main() {
 
     // Load config
     let mut cfg: Cfg;
-    let mut pswd1: String;
+    let mut pswd1 = [0u8; 32];
     match fs::load_cfg(&cfg_path) {
         Ok(cfg_) => {
             cfg = cfg_;
             // Verify password
-            let mut pswd = String::new();
-            prompt!("Password: ");
-            readline!(pswd);
+            let pswd = rpassword::prompt_password_stdout("Password: ").unwrap();
             // password hashed once, used for encryption
             let mut hasher = crypto::sha3::Sha3::sha3_256();
             hasher.input_str(&pswd);
-            pswd1 = hasher.result_str();
+            hasher.result(&mut pswd1);
 
             // password hashed twice, used for verification
             let mut hasher = crypto::sha3::Sha3::sha3_256();
-            hasher.input_str(&pswd1);
+            hasher.input(&pswd1);
             let pswd2 = hasher.result_str();
             if pswd2 != cfg.pswd {
                 println!("Incorrect password");
@@ -189,61 +181,82 @@ fn main() {
     }
 
     // Load records from files
-    let mut records = fs::load_records(&cfg.record_pth, &pswd1);
+    // TODO: use bencrypt to generate key, sha256 to generate iv
+    let mut records = fs::load_records(&cfg.record_pth, &pswd1, &pswd1[..16]);
     let mut modified = false;
 
     // Operations
-    match op {
-        Op::Add => {
-            add_record(&mut records);
-            modified = true;
-        }
-        Op::Del(idx) => {
-            // Print to-be deleted item
-            record::print_record(&records, idx);
-            records.remove(idx);
-            modified = true;
-        }
-        Op::Ls(Option::None) => {
-            // list all
-            record::print_table(&records);
-        }
-        Op::Ls(Option::Some(clause)) => {
-            unimplemented!("advanced ls not implemented");
-        }
-        Op::Mod(idx, remain) => {
-            if modify_record(&mut records, idx, remain) {
-                modified = true;
+    loop {
+        if op.is_ok() {
+            match &op.unwrap() {
+                Op::None => {}
+                Op::Add => {
+                    add_record(&mut records);
+                    modified = true;
+                }
+                Op::Del(idx) => {
+                    // Print to-be deleted item
+                    record::print_record(&records, *idx);
+                    records.remove(*idx);
+                    modified = true;
+                }
+                Op::Ls(Option::None) => {
+                    // list all
+                    record::print_table(&records);
+                }
+                Op::Ls(Option::Some(clause)) => {
+                    unimplemented!("advanced ls not implemented");
+                }
+                Op::Mod(idx, remain) => {
+                    if modify_record(&mut records, *idx, *remain) {
+                        modified = true;
+                    }
+                }
+                Op::Import(fname) => {
+                    prompt!("Warning: import will replace all old records and it cannot be undone!\nStill import?(Y/N):");
+                    let mut ans = String::new();
+                    readline!(ans);
+                    ans = ans.to_uppercase();
+                    if ans == "Y" {
+                        records = fs::read_tsv(&fname);
+                        modified = true;
+                    }
+                }
+                Op::Export(fname) => {
+                    fs::save_tsv(&fname, &records);
+                }
+                Op::ChangePswd => match get_new_pswd(&mut cfg) {
+                    Ok(pswd1_) => {
+                        pswd1 = pswd1_;
+                        modified = true;
+                        fs::store_cfg(&cfg_path, &cfg);
+                    }
+                    Err(e) => {
+                        println!("{}", e);
+                        return;
+                    }
+                }
+                Op::Quit => {
+                    break;
+                }
             }
+        } else {
+            println!("{}\n", op.unwrap_err());
         }
-        Op::Import(fname) => {
-            prompt!("Warning: import will replace all old records and it cannot be undone!\nStill import?(Y/N):");
-            let mut ans = String::new();
-            readline!(ans);
-            ans = ans.to_uppercase();
-            if ans == "Y" {
-                records = fs::read_tsv(&fname);
-                modified = true;
-            }
-        }
-        Op::Export(fname) => {
-            fs::save_tsv(&fname, &records);
-        }
-        Op::ChangePswd => match get_new_pswd(&mut cfg) {
-            Ok(pswd1_) => {
-                pswd1 = pswd1_;
-                modified = true;
-                fs::store_cfg(&cfg_path, &cfg);
-            }
-            Err(e) => {
-                println!("{}", e);
-                return;
-            }
-        },
+
+        prompt!("\n>>> ");
+        let mut line = String::new();
+        readline!(line);
+        // TODO: use regex to match tokens
+        op = parse(
+            line.split_ascii_whitespace()
+                .map(|x| String::from(x))
+                .collect(),
+        );
     }
 
     if modified {
         // Save if records is modified
-        fs::store_records(&cfg.record_pth, &records, &pswd1);
+        fs::store_records(&cfg.record_pth, &records, &pswd1, &pswd1[..16]);
     }
 }

@@ -17,7 +17,7 @@ impl Record {
 }
 
 pub fn print_table(records: &Vec<Record>) {
-    println!("\tSite\tUsername\tPassword\tNote\n");
+    println!("\tSite\tUsername\tPassword\tNote");
     for (i, r) in records.iter().enumerate() {
         println!(
             "{}\t{}\t{}\t{}\t{}",

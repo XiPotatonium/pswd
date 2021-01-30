@@ -1,37 +1,11 @@
 use crate::cfg::Cfg;
 use crate::record::Record;
+use crypto::{symmetriccipher, aes, blockmodes};
+use crypto::buffer::{self, WriteBuffer, ReadBuffer, BufferResult};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 use std::str;
-
-/*
-pub fn aes_cbc_mode() {
-    let message = "Hello World!";
-
-    let mut key: [u8; 32] = [0; 32];
-    let mut iv: [u8; 16] = [0; 16];
-
-    // In a real program, the key and iv may be determined
-    // using some other mechanism. If a password is to be used
-    // as a key, an algorithm like PBKDF2, Bcrypt, or Scrypt (all
-    // supported by Rust-Crypto!) would be a good choice to derive
-    // a password. For the purposes of this example, the key and
-    // iv are just random values.
-    let mut rng = OsRng::new().ok().unwrap();
-    rng.fill_bytes(&mut key);
-    rng.fill_bytes(&mut iv);
-
-    let encrypted_data = aes256_cbc_encrypt(message.as_bytes(), &key, &iv)
-        .unwrap();
-    let decrypted_data = aes256_cbc_decrypt(&encrypted_data[..], &key, &iv)
-        .unwrap();
-
-    let crypt_message = str::from_utf8(decrypted_data.as_slice()).unwrap();
-
-    assert_eq!(message, crypt_message);
-    println!("{}", crypt_message);
-}
 
 // Encrypt a buffer with the given key and iv using AES-256/CBC/Pkcs encryption.
 fn aes256_cbc_encrypt(
@@ -102,7 +76,6 @@ fn aes256_cbc_decrypt(
 
     Ok(final_result)
 }
-*/
 
 pub fn read_tsv(fname: &str) -> Vec<Record> {
     let fin = BufReader::new(File::open(fname).unwrap());
@@ -168,35 +141,7 @@ macro_rules! consume_str {
     }};
 }
 
-pub fn load_records(fname: &str, kword: &String) -> Vec<Record> {
-    let path = Path::new(fname);
-    if !path.exists() {
-        return Vec::new();
-    }
-
-    let buf = fs::read(fname).unwrap();
-    let mut ret: Vec<Record> = Vec::new();
-
-    let mut i = 0usize;
-
-    while i < buf.len() {
-        let site_len = consume_u32_le!(buf, i) as usize;
-        let username_len = consume_u32_le!(buf, i) as usize;
-        let password_len = consume_u32_le!(buf, i) as usize;
-        let note_len = consume_u32_le!(buf, i) as usize;
-
-        let site = String::from(consume_str!(buf, i, site_len));
-        let username = String::from(consume_str!(buf, i, username_len));
-        let password = String::from(consume_str!(buf, i, password_len));
-        let note = String::from(consume_str!(buf, i, note_len));
-
-        ret.push(Record::new(site, username, password, note))
-    }
-
-    ret
-}
-
-pub fn store_records(fname: &str, records: &Vec<Record>, kword: &String) {
+pub fn store_records(fname: &str, records: &Vec<Record>, key: &[u8], iv: &[u8]) {
     let mut buf: Vec<u8> = Vec::new();
 
     for r in records.iter() {
@@ -211,5 +156,35 @@ pub fn store_records(fname: &str, records: &Vec<Record>, kword: &String) {
         buf.extend(r.note.as_bytes());
     }
 
-    fs::write(fname, &buf).unwrap();
+    let data = aes256_cbc_encrypt(&buf[..], key, iv).unwrap();
+    fs::write(fname, &data).unwrap();
+}
+
+pub fn load_records(fname: &str, key: &[u8], iv: &[u8]) -> Vec<Record> {
+    let path = Path::new(fname);
+    if !path.exists() {
+        return Vec::new();
+    }
+
+    let buf = fs::read(fname).unwrap();
+    let data = aes256_cbc_decrypt(&buf[..], key, iv).unwrap();
+    let mut ret: Vec<Record> = Vec::new();
+
+    let mut i = 0usize;
+
+    while i < data.len() {
+        let site_len = consume_u32_le!(data, i) as usize;
+        let username_len = consume_u32_le!(data, i) as usize;
+        let password_len = consume_u32_le!(data, i) as usize;
+        let note_len = consume_u32_le!(data, i) as usize;
+
+        let site = String::from(consume_str!(data, i, site_len));
+        let username = String::from(consume_str!(data, i, username_len));
+        let password = String::from(consume_str!(data, i, password_len));
+        let note = String::from(consume_str!(data, i, note_len));
+
+        ret.push(Record::new(site, username, password, note))
+    }
+
+    ret
 }
